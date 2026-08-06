@@ -8,7 +8,7 @@ public class ValidationService implements IValidateService
     @Override
     public boolean isValidIp(String ip)
     {
-        if (IP_PATTERN.matcher(ip).matches())
+        if ( ip != null && IP_PATTERN.matcher(ip).matches())
         {
             return true;
         }

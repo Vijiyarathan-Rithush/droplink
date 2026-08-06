@@ -66,22 +66,20 @@ public final class TcpClient implements IClient
     {
         if (socket == null) throw new IllegalStateException("Not connected to any endpoint");
 
-        if (!socket.isClosed()) 
-        {
+        
             try 
             {
-                socket.close();
+                if (!socket.isClosed()) socket.close();
             } 
             catch (IOException e) 
             {
-                socket = null;
                 throw new RuntimeException("Failed to disconnect from the endpoint: " + e.getMessage(), e);
             }
             finally 
             {
                 socket = null;
             }
-        }
+        
     }
 
     @Override
