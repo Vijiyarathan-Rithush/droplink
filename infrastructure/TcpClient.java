@@ -1,6 +1,7 @@
 package infrastructure;
 
 import domain.NetworkEndpoint;
+import domain.interfaces.IClient;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -10,8 +11,9 @@ public final class TcpClient implements IClient
     private static final int DEFAULT_TIMEOUT = 5_000;
     private Socket socket;
 
-    public TcpClient() 
+    public TcpClient(Socket socket)
     {
+        this.socket = socket;
     }
 
     @Override
@@ -65,8 +67,6 @@ public final class TcpClient implements IClient
     public void disconnect() 
     {
         if (socket == null) throw new IllegalStateException("Not connected to any endpoint");
-
-        
             try 
             {
                 if (!socket.isClosed()) socket.close();
@@ -79,14 +79,11 @@ public final class TcpClient implements IClient
             {
                 socket = null;
             }
-        
     }
 
     @Override
     public boolean isConnected() 
     {
-        if (socket == null || socket.isClosed() || !socket.isConnected()) return false;
-        return true;
+        return !(socket == null || socket.isClosed() || !socket.isConnected());
     }
-    
 }
