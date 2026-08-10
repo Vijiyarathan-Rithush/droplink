@@ -1,6 +1,6 @@
 package infrastructure;
 
-import domain.interfaces.IServer;
+import infrastructure.interfaces.IServer;
 
 import java.io.BufferedReader;
 import java.io.IOException;

@@ -1,8 +1,8 @@
 package service;
 
 import domain.NetworkEndpoint;
-import domain.interfaces.IClient;
-import domain.interfaces.IFileTransferService;
+import service.interfaces.IClient;
+import service.interfaces.IFileTransferService;
 
 import java.io.*;
 import java.nio.file.Files;

@@ -1,4 +1,4 @@
-package domain.interfaces;
+package infrastructure.interfaces;
 
 public interface IServer
 {

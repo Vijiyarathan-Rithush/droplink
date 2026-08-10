@@ -1,4 +1,4 @@
-package domain.interfaces;
+package service.interfaces;
 
 import domain.NetworkEndpoint;
 

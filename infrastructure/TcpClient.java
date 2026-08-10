@@ -1,7 +1,7 @@
 package infrastructure;
 
 import domain.NetworkEndpoint;
-import domain.interfaces.IClient;
+import service.interfaces.IClient;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;

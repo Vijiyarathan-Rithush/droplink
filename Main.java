@@ -1,5 +1,5 @@
 import domain.NetworkEndpoint;
-import domain.interfaces.IClient;
+import service.interfaces.IClient;
 import infrastructure.TcpClient;
 import infrastructure.TcpServer;
 import service.FileTransferService;

@@ -12,7 +12,7 @@ public record NetworkEndpoint(String host , int port)
            throw new IllegalArgumentException("Invalid IP address: " + host);
         }
 
-        if (port < 1 && port > 65535)
+        if (port < 1 || port > 65535)
         {
             throw new IllegalArgumentException("Invalid port number: " + port);
         }
