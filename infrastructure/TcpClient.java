@@ -3,6 +3,8 @@ package infrastructure;
 import domain.NetworkEndpoint;
 import domain.interfaces.IClient;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
@@ -21,7 +23,7 @@ public final class TcpClient implements IClient
     {
         if (endpoint == null) throw new IllegalArgumentException("Endpoint cannot be null");
 
-        InetSocketAddress socketAddress = new InetSocketAddress(endpoint.ip(), endpoint.port());
+        InetSocketAddress socketAddress = new InetSocketAddress(endpoint.host(), endpoint.port());
 
         try (Socket testSocket = new Socket())
         {
@@ -40,7 +42,7 @@ public final class TcpClient implements IClient
         if (endpoint == null) throw new IllegalArgumentException("Endpoint cannot be null");
         if (isConnected()) throw new IllegalStateException("Already connected to an endpoint");
 
-        InetSocketAddress socketAddress = new InetSocketAddress(endpoint.ip(), endpoint.port());
+        InetSocketAddress socketAddress = new InetSocketAddress(endpoint.host(), endpoint.port());
         Socket clientSocket = new Socket();
         
         try
@@ -67,23 +69,37 @@ public final class TcpClient implements IClient
     public void disconnect() 
     {
         if (socket == null) throw new IllegalStateException("Not connected to any endpoint");
-            try 
-            {
-                if (!socket.isClosed()) socket.close();
-            } 
-            catch (IOException e) 
-            {
-                throw new RuntimeException("Failed to disconnect from the endpoint: " + e.getMessage(), e);
-            }
-            finally 
-            {
-                socket = null;
-            }
+        try
+        {
+            if (!socket.isClosed()) socket.close();
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException("Failed to disconnect from the endpoint: " + e.getMessage(), e);
+        }
+        finally
+        {
+            socket = null;
+        }
     }
 
     @Override
-    public boolean isConnected() 
+    public boolean isConnected()
     {
         return !(socket == null || socket.isClosed() || !socket.isConnected());
+    }
+
+    @Override
+    public InputStream getInputStream() throws IOException
+    {
+        if (!isConnected()) throw new IllegalStateException("Client is not connected.");
+        return socket.getInputStream();
+    }
+
+    @Override
+    public OutputStream getOutputStream() throws IOException
+    {
+        if (!isConnected()) throw new IllegalStateException("Client is not connected.");
+        return socket.getOutputStream();
     }
 }

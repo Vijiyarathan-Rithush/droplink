@@ -1,17 +1,23 @@
 import domain.NetworkEndpoint;
+import domain.interfaces.IClient;
 import infrastructure.TcpClient;
 import infrastructure.TcpServer;
+import service.FileTransferService;
 
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class Main
 {
-    public static void main(String[] args) throws InterruptedException
+    public static void main() throws Exception
     {
         final int port = 5000;
+
         TcpServer server = new TcpServer();
 
-        Thread serverThread = new Thread(() ->{
+        Thread serverThread = new Thread(() ->
+        {
             server.start(port);
             System.out.println("Client connected");
         });
@@ -20,17 +26,26 @@ public final class Main
 
         Thread.sleep(500);
 
-        TcpClient client = new TcpClient(new Socket());
+        Path file = Path.of("test.txt");
 
-        NetworkEndpoint enpoint = new NetworkEndpoint("127.0.0.1",port);
+        Files.writeString(
+                file,
+                "Hello File Transfer!"
+        );
 
-        client.connect(enpoint);
+        IClient client = new TcpClient(new Socket());
 
-        System.out.println("Client: " + client.isConnected());
-        System.out.println("Server: " + server.isRunning());
+        FileTransferService fileTransferService =
+                new FileTransferService(client);
 
-        client.disconnect();
-        server.stop();
+        NetworkEndpoint endpoint =
+                new NetworkEndpoint("127.0.0.1", port);
+
+        fileTransferService.send(
+                endpoint,
+                file
+        );
+
+        System.out.println("File sent");
     }
-
 }
