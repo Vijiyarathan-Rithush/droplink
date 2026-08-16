@@ -1,8 +1,10 @@
 package service;
 
 import domain.NetworkEndpoint;
+import domain.TransferDecision;
 import service.interfaces.IClient;
 import service.interfaces.IFileTransferService;
+import service.interfaces.ITransferDecisionService;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -11,11 +13,14 @@ import java.nio.file.Path;
 public final class FileTransferService implements IFileTransferService
 {
     private final IClient client;
+    private final ITransferDecisionService transferDecisionService;
     private static final int BUFFER_SIZE = 8192;
+    private static final int END_OF_FILE = -1;
 
-    public FileTransferService(IClient client)
+    public FileTransferService(IClient client, ITransferDecisionService transferDecisionService)
     {
         this.client = client;
+        this.transferDecisionService = transferDecisionService;
     }
 
     @Override
@@ -38,13 +43,22 @@ public final class FileTransferService implements IFileTransferService
 
             outputStream.writeUTF(fileName);
             outputStream.writeLong(fileSize);
+            outputStream.flush();
+
+            TransferDecision decision = transferDecisionService.receiveDecision(client.getInputStream());
+
+            if (decision == TransferDecision.REJECTED)
+            {
+                System.out.println("Transfer rejected");
+                return;
+            }
 
             try(FileInputStream fileInputStream = new FileInputStream(file.toFile()))
             {
                 byte[] buffer = new byte[BUFFER_SIZE];
                 int bytesRead;
 
-                while ((bytesRead = fileInputStream.read(buffer)) != -1)
+                while ((bytesRead = fileInputStream.read(buffer)) != END_OF_FILE)
                 {
                     outputStream.write(buffer,0,bytesRead);
                 }
@@ -75,7 +89,7 @@ public final class FileTransferService implements IFileTransferService
             int bytesToRead = (int) Math.min(buffer.length, remainingBytes);
             int bytesRead = inputStream.read(buffer,0,bytesToRead);
 
-            if (bytesRead == -1) throw new IOException("Connection closed before file transfer was completed");
+            if (bytesRead == END_OF_FILE) throw new IOException("Connection closed before file transfer was completed");
 
             outputStream.write(buffer, 0,bytesRead);
             remainingBytes -= bytesRead;
