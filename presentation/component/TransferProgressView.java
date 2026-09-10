@@ -17,6 +17,8 @@ public final class TransferProgressView extends VBox
     {
         setSpacing(9);
         getStyleClass().add("transfer-progress");
+        setManaged(false);
+        setVisible(false);
         progressBar.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(progressBar, Priority.ALWAYS);
         percentage.getStyleClass().add("progress-percentage");
@@ -26,6 +28,8 @@ public final class TransferProgressView extends VBox
 
     public void update(long bytesTransferred, long totalBytes)
     {
+        setManaged(true);
+        setVisible(true);
         double progress = totalBytes == 0 ? 1 : (double) bytesTransferred / totalBytes;
         progressBar.setProgress(progress);
         percentage.setText(Math.round(progress * 100) + " %");
@@ -37,5 +41,7 @@ public final class TransferProgressView extends VBox
         progressBar.setProgress(0);
         percentage.setText("0 %");
         transferred.setText("0 B von 0 B");
+        setManaged(false);
+        setVisible(false);
     }
 }

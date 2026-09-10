@@ -39,7 +39,7 @@ public final class SendView extends VBox
     public SendView(Stage owner)
     {
         this.owner = owner;
-        setSpacing(24);
+        setSpacing(16);
         getStyleClass().add("content-card");
 
         host.setValidator(InputValidators::ipv4);
@@ -47,6 +47,8 @@ public final class SendView extends VBox
         file.setValidator(InputValidators::existingFile);
         file.setOnBrowse(event -> chooseFile());
         fileMeta.getStyleClass().add("file-meta");
+        fileMeta.setManaged(false);
+        fileMeta.setVisible(false);
 
         GridPane connection = new GridPane();
         connection.setHgap(16);
@@ -59,9 +61,10 @@ public final class SendView extends VBox
         cancelButton.getStyleClass().add("danger-button");
         cancelButton.setDisable(true);
         HBox actions = new HBox(10, sendButton, cancelButton);
+        actions.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
 
         getChildren().addAll(
-                new SectionHeader("01", "Datei senden", "Direkt an ein Gerät in deinem lokalen Netzwerk."),
+                new SectionHeader("Datei senden"),
                 connection,
                 file,
                 fileMeta,
@@ -141,6 +144,8 @@ public final class SendView extends VBox
         {
             fileMeta.setText("Dateigröße konnte nicht gelesen werden");
         }
+        fileMeta.setManaged(true);
+        fileMeta.setVisible(true);
     }
 
 }

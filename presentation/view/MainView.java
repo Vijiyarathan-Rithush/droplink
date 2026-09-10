@@ -15,8 +15,8 @@ public final class MainView extends BorderPane
         getStyleClass().add("app-root");
         setTop(new AppHeader());
 
-        Tab sendTab = new Tab("SENDEN", sendView);
-        Tab receiveTab = new Tab("EMPFANGEN", receiveView);
+        Tab sendTab = new Tab("Senden", sendView);
+        Tab receiveTab = new Tab("Empfangen", receiveView);
         sendTab.setClosable(false);
         receiveTab.setClosable(false);
 
@@ -25,7 +25,8 @@ public final class MainView extends BorderPane
         tabs.setMaxHeight(Double.MAX_VALUE);
         VBox content = new VBox(tabs);
         VBox.setVgrow(tabs, Priority.ALWAYS);
-        content.setPadding(new Insets(0, 34, 34, 34));
+        content.setPadding(new Insets(0, 28, 28, 28));
         setCenter(content);
     }
+
 }

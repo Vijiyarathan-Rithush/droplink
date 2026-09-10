@@ -3,7 +3,6 @@ package presentation.view;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.scene.control.Button;
-import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
@@ -34,7 +33,7 @@ public final class ReceiveView extends VBox
     public ReceiveView(Stage owner)
     {
         this.owner = owner;
-        setSpacing(24);
+        setSpacing(16);
         getStyleClass().add("content-card");
 
         port.setValidator(InputValidators::port);
@@ -42,20 +41,23 @@ public final class ReceiveView extends VBox
         directory.setOnBrowse(event -> chooseDirectory());
         startButton.getStyleClass().add("primary-button");
         stopButton.getStyleClass().add("danger-button");
-        stopButton.setDisable(true);
-
-        Label hint = new Label("DropLink fragt dich vor jedem Download, ob du die Datei annehmen möchtest.");
-        hint.setWrapText(true);
-        hint.getStyleClass().add("info-callout");
+        stopButton.setManaged(false);
+        stopButton.setVisible(false);
 
         getChildren().addAll(
-                new SectionHeader("02", "Dateien empfangen", "Lausche auf eingehende Übertragungen und behalte die Kontrolle."),
+                new SectionHeader("Dateien empfangen"),
                 port,
                 directory,
-                hint,
                 progress,
                 status,
-                new HBox(10, startButton, stopButton));
+                actions());
+    }
+
+    private HBox actions()
+    {
+        HBox actions = new HBox(10, startButton, stopButton);
+        actions.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
+        return actions;
     }
 
     public boolean validateInputs()
@@ -87,8 +89,10 @@ public final class ReceiveView extends VBox
     {
         port.setInputDisabled(listening);
         directory.setInputDisabled(listening);
-        startButton.setDisable(listening);
-        stopButton.setDisable(!listening);
+        startButton.setManaged(!listening);
+        startButton.setVisible(!listening);
+        stopButton.setManaged(listening);
+        stopButton.setVisible(listening);
     }
 
     public void resetProgress()

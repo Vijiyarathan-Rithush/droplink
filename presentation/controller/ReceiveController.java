@@ -107,6 +107,7 @@ public final class ReceiveController
 
     private void handleConnection(IClient client, Path directory) throws Exception
     {
+        Platform.runLater(view::resetProgress);
         TransferDecisionService decisions = new TransferDecisionService();
         FileTransferService files = new FileTransferService(
                 client,

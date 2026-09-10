@@ -26,13 +26,13 @@ public final class DropLinkApplication extends Application
         sendController = new SendController(sendView, dialogs);
         receiveController = new ReceiveController(receiveView, dialogs);
 
-        Scene scene = new Scene(new MainView(sendView, receiveView), 900, 680);
+        Scene scene = new Scene(new MainView(sendView, receiveView), 780, 590);
         scene.getStylesheets().add(Objects.requireNonNull(
                 getClass().getResource("styles.css"), "JavaFX stylesheet is missing").toExternalForm());
 
         stage.setTitle("DropLink – Local File Transfer");
-        stage.setMinWidth(780);
-        stage.setMinHeight(620);
+        stage.setMinWidth(700);
+        stage.setMinHeight(560);
         stage.setScene(scene);
         stage.show();
     }
