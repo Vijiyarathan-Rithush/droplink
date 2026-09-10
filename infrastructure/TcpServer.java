@@ -1,6 +1,7 @@
 package infrastructure;
 
 import infrastructure.interfaces.IServer;
+import service.interfaces.IClient;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.net.Socket;
 
 public final class TcpServer implements IServer
 {
+    private static final int DEFAULT_TIMEOUT = 5_000;
     private ServerSocket serverSocket;
     private TcpClient tcpClient;
     private PrintWriter output;
@@ -25,6 +27,7 @@ public final class TcpServer implements IServer
         {
             serverSocket = new ServerSocket(port);
             Socket clientSocket = serverSocket.accept();
+            clientSocket.setSoTimeout(DEFAULT_TIMEOUT);
             tcpClient = new TcpClient(clientSocket);
         }
         catch (IOException | SecurityException  | IllegalArgumentException e)
@@ -32,6 +35,14 @@ public final class TcpServer implements IServer
             closeServerSocket();
             throw new RuntimeException("Failed to start server: " + e.getMessage(), e);
         }
+    }
+
+    public IClient getClient()
+    {
+        if (tcpClient == null || !tcpClient.isConnected())
+            throw new IllegalStateException("No client is connected");
+
+        return tcpClient;
     }
 
     @Override

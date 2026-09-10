@@ -11,7 +11,7 @@ import java.net.Socket;
 public final class TcpClient implements IClient
 {
     private static final int DEFAULT_TIMEOUT = 5_000;
-    private Socket socket;
+    private volatile Socket socket;
 
     public TcpClient(Socket socket)
     {
@@ -48,6 +48,7 @@ public final class TcpClient implements IClient
         try
         {
             clientSocket.connect(socketAddress, DEFAULT_TIMEOUT);
+            clientSocket.setSoTimeout(DEFAULT_TIMEOUT);
             this.socket = clientSocket;
         }
         catch (IOException e)

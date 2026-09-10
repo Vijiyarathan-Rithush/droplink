@@ -9,23 +9,26 @@ import service.interfaces.ITransferDecisionService;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Objects;
 
 public final class FileTransferService implements IFileTransferService
 {
     private final IClient client;
     private final ITransferDecisionService transferDecisionService;
+    private volatile boolean cancelled;
     private static final int BUFFER_SIZE = 8192;
     private static final int END_OF_FILE = -1;
 
     public FileTransferService(IClient client, ITransferDecisionService transferDecisionService)
     {
-        this.client = client;
-        this.transferDecisionService = transferDecisionService;
+        this.client = Objects.requireNonNull(client, "client cannot be null");
+        this.transferDecisionService = Objects.requireNonNull(transferDecisionService, "transferDecisionService cannot be null");
     }
 
     @Override
-    public void send(NetworkEndpoint endpoint, Path file) throws IOException
+    public TransferDecision send(NetworkEndpoint endpoint, Path file) throws IOException
     {
+        cancelled = false;
         if (endpoint == null)
             throw new IllegalArgumentException("endpoint cannot be null");
         if (file == null)
@@ -49,8 +52,7 @@ public final class FileTransferService implements IFileTransferService
 
             if (decision == TransferDecision.REJECTED)
             {
-                System.out.println("Transfer rejected");
-                return;
+                return decision;
             }
 
             try(FileInputStream fileInputStream = new FileInputStream(file.toFile()))
@@ -60,10 +62,18 @@ public final class FileTransferService implements IFileTransferService
 
                 while ((bytesRead = fileInputStream.read(buffer)) != END_OF_FILE)
                 {
+                    throwIfCancelled();
                     outputStream.write(buffer,0,bytesRead);
                 }
             }
+            throwIfCancelled();
             outputStream.flush();
+            return decision;
+        }
+        catch (IOException e)
+        {
+            if (cancelled) throw new TransferCancelledException(e);
+            throw e;
         }
         finally
         {
@@ -84,16 +94,55 @@ public final class FileTransferService implements IFileTransferService
         byte[] buffer = new byte[BUFFER_SIZE];
         long remainingBytes = fileSize;
 
-        while (remainingBytes > 0)
+        try
         {
-            int bytesToRead = (int) Math.min(buffer.length, remainingBytes);
-            int bytesRead = inputStream.read(buffer,0,bytesToRead);
+            while (remainingBytes > 0)
+            {
+                throwIfCancelled();
+                int bytesToRead = (int) Math.min(buffer.length, remainingBytes);
+                int bytesRead = inputStream.read(buffer,0,bytesToRead);
 
-            if (bytesRead == END_OF_FILE) throw new IOException("Connection closed before file transfer was completed");
+                if (bytesRead == END_OF_FILE) throw new IOException("Connection closed before file transfer was completed");
 
-            outputStream.write(buffer, 0,bytesRead);
-            remainingBytes -= bytesRead;
+                outputStream.write(buffer, 0,bytesRead);
+                remainingBytes -= bytesRead;
+            }
+            throwIfCancelled();
+            outputStream.flush();
         }
-        outputStream.flush();
+        catch (IOException e)
+        {
+            if (cancelled) throw new TransferCancelledException(e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void cancel()
+    {
+        cancelled = true;
+
+        if (client.isConnected())
+        {
+            try
+            {
+                client.disconnect();
+            }
+            catch (RuntimeException ignored)
+            {
+                // The connection may already have been closed by the transfer thread.
+            }
+        }
+    }
+
+    @Override
+    public boolean isCancelled()
+    {
+        return cancelled;
+    }
+
+    private void throwIfCancelled() throws TransferCancelledException
+    {
+        if (cancelled) throw new TransferCancelledException();
     }
 }
