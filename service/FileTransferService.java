@@ -5,6 +5,7 @@ import domain.TransferDecision;
 import service.interfaces.IClient;
 import service.interfaces.IFileTransferService;
 import service.interfaces.ITransferDecisionService;
+import service.interfaces.TransferProgressListener;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -15,14 +16,25 @@ public final class FileTransferService implements IFileTransferService
 {
     private final IClient client;
     private final ITransferDecisionService transferDecisionService;
+    private final TransferProgressListener progressListener;
     private volatile boolean cancelled;
     private static final int BUFFER_SIZE = 8192;
+    private static final int PROGRESS_INTERVAL = 256 * 1024;
     private static final int END_OF_FILE = -1;
 
     public FileTransferService(IClient client, ITransferDecisionService transferDecisionService)
     {
+        this(client, transferDecisionService, TransferProgressListener.NONE);
+    }
+
+    public FileTransferService(
+            IClient client,
+            ITransferDecisionService transferDecisionService,
+            TransferProgressListener progressListener)
+    {
         this.client = Objects.requireNonNull(client, "client cannot be null");
         this.transferDecisionService = Objects.requireNonNull(transferDecisionService, "transferDecisionService cannot be null");
+        this.progressListener = Objects.requireNonNull(progressListener, "progressListener cannot be null");
     }
 
     @Override
@@ -43,6 +55,9 @@ public final class FileTransferService implements IFileTransferService
 
             String fileName = file.getFileName().toString();
             long fileSize = Files.size(file);
+            long transferredBytes = 0;
+            long lastReportedBytes = 0;
+            progressListener.onProgress(0, fileSize);
 
             outputStream.writeUTF(fileName);
             outputStream.writeLong(fileSize);
@@ -64,6 +79,12 @@ public final class FileTransferService implements IFileTransferService
                 {
                     throwIfCancelled();
                     outputStream.write(buffer,0,bytesRead);
+                    transferredBytes += bytesRead;
+                    if (transferredBytes == fileSize || transferredBytes - lastReportedBytes >= PROGRESS_INTERVAL)
+                    {
+                        progressListener.onProgress(transferredBytes, fileSize);
+                        lastReportedBytes = transferredBytes;
+                    }
                 }
             }
             throwIfCancelled();
@@ -93,6 +114,9 @@ public final class FileTransferService implements IFileTransferService
 
         byte[] buffer = new byte[BUFFER_SIZE];
         long remainingBytes = fileSize;
+        long transferredBytes = 0;
+        long lastReportedBytes = 0;
+        progressListener.onProgress(0, fileSize);
 
         try
         {
@@ -106,6 +130,12 @@ public final class FileTransferService implements IFileTransferService
 
                 outputStream.write(buffer, 0,bytesRead);
                 remainingBytes -= bytesRead;
+                transferredBytes += bytesRead;
+                if (transferredBytes == fileSize || transferredBytes - lastReportedBytes >= PROGRESS_INTERVAL)
+                {
+                    progressListener.onProgress(transferredBytes, fileSize);
+                    lastReportedBytes = transferredBytes;
+                }
             }
             throwIfCancelled();
             outputStream.flush();

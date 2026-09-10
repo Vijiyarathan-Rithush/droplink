@@ -12,7 +12,7 @@ import java.net.Socket;
 public final class TcpServer implements IServer
 {
     private static final int DEFAULT_TIMEOUT = 5_000;
-    private ServerSocket serverSocket;
+    private volatile ServerSocket serverSocket;
     private TcpClient tcpClient;
     private PrintWriter output;
     private BufferedReader input;
