@@ -1,0 +1,127 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build EXE
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v5
+
+      - name: Java 25 einrichten
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Versionsnummer bestimmen
+        shell: pwsh
+        run: |
+          $version = "1.2.$env:GITHUB_RUN_NUMBER"
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Anwendung kompilieren
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          mvn --batch-mode --no-transfer-progress clean package dependency:copy-dependencies `
+            "-DincludeScope=runtime" `
+            "-DoutputDirectory=target/package-input"
+
+          $finalName = mvn --batch-mode --no-transfer-progress help:evaluate `
+            "-Dexpression=project.build.finalName" `
+            "-DforceStdout" `
+            --quiet
+          Copy-Item -LiteralPath "target/$finalName.jar" `
+            -Destination "target/package-input/droplink.jar"
+
+      - name: Portable App und Installer bauen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          New-Item -ItemType Directory -Force -Path "dist/portable", "dist/installer" | Out-Null
+
+          jpackage `
+            --type app-image `
+            --name DropLink `
+            --app-version $env:APP_VERSION `
+            --vendor DropLink `
+            --description "Direkter Dateitransfer im lokalen Netzwerk" `
+            --input "target/package-input" `
+            --dest "dist/portable" `
+            --main-jar "droplink.jar" `
+            --main-class "presentation.Launcher" `
+            --java-options "--enable-native-access=ALL-UNNAMED"
+
+          jpackage `
+            --type exe `
+            --name DropLink `
+            --app-version $env:APP_VERSION `
+            --vendor DropLink `
+            --description "Direkter Dateitransfer im lokalen Netzwerk" `
+            --input "target/package-input" `
+            --dest "dist/installer" `
+            --main-jar "droplink.jar" `
+            --main-class "presentation.Launcher" `
+            --java-options "--enable-native-access=ALL-UNNAMED" `
+            --win-per-user-install `
+            --win-dir-chooser `
+            --win-menu `
+            --win-shortcut
+
+          Compress-Archive -LiteralPath "dist/portable/DropLink" `
+            -DestinationPath "dist/DropLink-Windows-x64.zip" `
+            -CompressionLevel Optimal
+
+          $installer = Get-ChildItem -LiteralPath "dist/installer" -Filter "*.exe" |
+            Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "jpackage hat keinen EXE-Installer erzeugt."
+          }
+          Copy-Item -LiteralPath $installer.FullName `
+            -Destination "dist/DropLink-Setup-Windows-x64.exe"
+
+          $files = @(
+            "dist/DropLink-Windows-x64.zip",
+            "dist/DropLink-Setup-Windows-x64.exe"
+          )
+          $checksums = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $file
+            "$($hash.Hash) *$([IO.Path]::GetFileName($file))"
+          }
+          $checksums | Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Encoding ascii
+
+      - name: Build herunterladen bereitstellen
+        uses: actions/upload-artifact@v6
+        with:
+          name: DropLink-Windows-x64
+          path: |
+            dist/DropLink-Windows-x64.zip
+            dist/DropLink-Setup-Windows-x64.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
