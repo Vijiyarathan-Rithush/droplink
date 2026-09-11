@@ -6,12 +6,15 @@ import javafx.event.EventHandler;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import presentation.validation.ValidationResult;
 
 import java.util.Objects;
+import java.nio.file.Path;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 public final class PathPickerField extends VBox
@@ -50,6 +53,28 @@ public final class PathPickerField extends VBox
     public void setOnBrowse(EventHandler<ActionEvent> handler)
     {
         browseButton.setOnAction(handler);
+    }
+
+    public void setOnPathDropped(Consumer<Path> handler)
+    {
+        Objects.requireNonNull(handler);
+        setOnDragOver(event ->
+        {
+            if (event.getGestureSource() != this && event.getDragboard().hasFiles())
+                event.acceptTransferModes(TransferMode.COPY);
+            event.consume();
+        });
+        setOnDragDropped(event ->
+        {
+            boolean completed = false;
+            if (event.getDragboard().hasFiles() && !event.getDragboard().getFiles().isEmpty())
+            {
+                handler.accept(event.getDragboard().getFiles().getFirst().toPath());
+                completed = true;
+            }
+            event.setDropCompleted(completed);
+            event.consume();
+        });
     }
 
     public void setValue(String value)

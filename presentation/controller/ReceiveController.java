@@ -1,10 +1,11 @@
 package presentation.controller;
 
 import domain.TransferRequest;
+import infrastructure.DeviceDiscoveryResponder;
+import infrastructure.DeviceDiscoveryService;
 import infrastructure.TcpServer;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
-import presentation.component.DialogService;
 import presentation.component.StatusBanner;
 import presentation.view.ReceiveView;
 import service.FileTransferService;
@@ -12,32 +13,34 @@ import service.IncomingTransferService;
 import service.TransferDecisionService;
 import service.interfaces.IClient;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ReceiveController
 {
     private final ReceiveView view;
-    private final DialogService dialogs;
-    private volatile IncomingTransferService activeTransfer;
+    private final Map<UUID, PendingTransfer> pendingTransfers = new ConcurrentHashMap<>();
     private volatile TcpServer activeServer;
-    private Task<Void> task;
+    private volatile DeviceDiscoveryResponder discoveryResponder;
+    private Task<Void> listenerTask;
 
-    public ReceiveController(ReceiveView view, DialogService dialogs)
+    public ReceiveController(ReceiveView view)
     {
         this.view = view;
-        this.dialogs = dialogs;
         view.onStart(event -> start());
         view.onStop(event -> stop());
     }
 
-    private void start()
+    public void start()
     {
-        if (task != null && task.isRunning()) return;
+        if (listenerTask != null && listenerTask.isRunning()) return;
         if (!view.validateInputs())
         {
-            view.setStatus("Bitte korrigiere die markierten Eingaben.", StatusBanner.Type.ERROR);
+            view.setStatus("Bitte einen gültigen Speicherort auswählen.", StatusBanner.Type.NEUTRAL);
             return;
         }
 
@@ -46,58 +49,57 @@ public final class ReceiveController
             int port = view.port();
             Path directory = view.outputDirectory();
             Files.createDirectories(directory);
-            view.resetProgress();
             view.setListening(true);
-            view.setStatus("Empfänger wird gestartet …", StatusBanner.Type.ACTIVE);
+            view.setStatus("Empfang wird aktiviert …", StatusBanner.Type.ACTIVE);
 
-            task = createReceiverTask(port, directory);
-            task.setOnCancelled(event -> finish("Empfänger gestoppt.", StatusBanner.Type.NEUTRAL));
-            task.setOnSucceeded(event -> finish("Empfänger gestoppt.", StatusBanner.Type.NEUTRAL));
-            task.setOnFailed(event -> finish(
-                    "Empfänger wurde gestoppt. Bitte Port und Netzwerkfreigabe prüfen.",
-                    StatusBanner.Type.ERROR));
-            startDaemon(task, "droplink-receive");
+            DeviceDiscoveryResponder responder = new DeviceDiscoveryResponder(
+                    DeviceDiscoveryService.localDeviceName(), port);
+            responder.start();
+            discoveryResponder = responder;
+
+            listenerTask = createListenerTask(port, directory);
+            listenerTask.setOnCancelled(event -> finish("Empfang pausiert.", StatusBanner.Type.NEUTRAL));
+            listenerTask.setOnSucceeded(event -> finish("Empfang pausiert.", StatusBanner.Type.NEUTRAL));
+            listenerTask.setOnFailed(event -> finish(
+                    "Empfang ist derzeit nicht verfügbar.", StatusBanner.Type.NEUTRAL));
+            startDaemon(listenerTask, "droplink-receive");
         }
-        catch (Exception e)
+        catch (Exception ignored)
         {
+            closeDiscoveryResponder();
             view.setListening(false);
-            view.setStatus("Empfänger konnte nicht gestartet werden.", StatusBanner.Type.ERROR);
+            view.setStatus("Empfang ist derzeit nicht verfügbar.", StatusBanner.Type.NEUTRAL);
         }
     }
 
-    private Task<Void> createReceiverTask(int port, Path directory)
+    private Task<Void> createListenerTask(int port, Path directory)
     {
         return new Task<>()
         {
             @Override
-            protected Void call() throws Exception
+            protected Void call()
             {
+                setStatus("Bereit für neue Anfragen.", StatusBanner.Type.ACTIVE);
                 while (!isCancelled())
                 {
                     TcpServer server = new TcpServer();
                     activeServer = server;
-                    setStatus("Bereit – warte auf Verbindung an Port " + port + " …", StatusBanner.Type.ACTIVE);
-
                     try
                     {
                         server.start(port);
                         if (isCancelled()) break;
-                        handleConnection(server.getClient(), directory);
+                        IClient client = server.getClient();
+                        server.closeServerSocket();
+                        queueRequest(client, directory);
                     }
-                    catch (IOException e)
+                    catch (Exception ignored)
                     {
                         if (!isCancelled())
-                            setStatus("Transfer unterbrochen – warte auf die nächste Verbindung …",
-                                    StatusBanner.Type.ERROR);
-                    }
-                    catch (RuntimeException e)
-                    {
-                        if (!isCancelled()) throw e;
+                            setStatus("Bereit für neue Anfragen.", StatusBanner.Type.ACTIVE);
                     }
                     finally
                     {
                         closeServer(server);
-                        activeTransfer = null;
                         activeServer = null;
                     }
                 }
@@ -106,49 +108,149 @@ public final class ReceiveController
         };
     }
 
-    private void handleConnection(IClient client, Path directory) throws Exception
+    private void queueRequest(IClient client, Path directory)
     {
-        Platform.runLater(view::resetProgress);
+        UUID id = UUID.randomUUID();
         TransferDecisionService decisions = new TransferDecisionService();
         FileTransferService files = new FileTransferService(
                 client,
                 decisions,
-                (transferred, total) -> Platform.runLater(() -> view.updateProgress(transferred, total)));
+                (transferred, total) -> Platform.runLater(
+                        () -> view.updateRequestProgress(id, transferred, total)));
         IncomingTransferService incoming = new IncomingTransferService(files, decisions);
-        activeTransfer = incoming;
 
-        TransferRequest request = incoming.receiveRequest(client);
-        setStatus("Anfrage für „" + request.fileName() + "“ erhalten.", StatusBanner.Type.ACTIVE);
-        boolean accepted = dialogs.askToAccept(request).get();
-        if (task.isCancelled()) return;
-
-        if (!accepted)
+        try
         {
-            incoming.reject(client);
-            setStatus("Datei abgelehnt – warte auf die nächste Verbindung …", StatusBanner.Type.NEUTRAL);
-            return;
-        }
+            TransferRequest request = incoming.receiveRequest(client);
+            if (request.fileName() == null || request.fileName().isBlank() || request.fileSize() < 0)
+            {
+                incoming.reject(client);
+                disconnect(client);
+                return;
+            }
 
-        Path receivedFile = incoming.accept(client, request, directory);
-        setStatus(receivedFile == null
-                        ? "Datei nicht gespeichert: Name ungültig oder bereits vorhanden."
-                        : "Empfangen: " + receivedFile.getFileName(),
-                receivedFile == null ? StatusBanner.Type.ERROR : StatusBanner.Type.SUCCESS);
+            PendingTransfer pending = new PendingTransfer(client, incoming, request, directory);
+            pendingTransfers.put(id, pending);
+            Platform.runLater(() ->
+            {
+                view.addRequest(id, request, () -> accept(id), () -> reject(id));
+                updateInboxStatus();
+            });
+        }
+        catch (Exception ignored)
+        {
+            disconnect(client);
+        }
+    }
+
+    private void accept(UUID id)
+    {
+        PendingTransfer pending = pendingTransfers.get(id);
+        if (pending == null || !pending.decided.compareAndSet(false, true)) return;
+        view.setRequestBusy(id);
+
+        Task<Path> receiveTask = new Task<>()
+        {
+            @Override
+            protected Path call() throws Exception
+            {
+                return pending.incoming.accept(
+                        pending.client, pending.request, pending.outputDirectory);
+            }
+        };
+        receiveTask.setOnSucceeded(event ->
+        {
+            Path receivedFile = receiveTask.getValue();
+            complete(id, pending);
+            view.setStatus(receivedFile == null
+                            ? "Die Anfrage wurde nicht gespeichert."
+                            : receivedFile.getFileName() + " wurde gespeichert.",
+                    receivedFile == null ? StatusBanner.Type.NEUTRAL : StatusBanner.Type.SUCCESS);
+        });
+        receiveTask.setOnFailed(event ->
+        {
+            complete(id, pending);
+            view.setStatus("Die Übertragung wurde beendet.", StatusBanner.Type.NEUTRAL);
+        });
+        startDaemon(receiveTask, "droplink-accept-" + id);
+    }
+
+    private void reject(UUID id)
+    {
+        PendingTransfer pending = pendingTransfers.get(id);
+        if (pending == null || !pending.decided.compareAndSet(false, true)) return;
+        try
+        {
+            pending.incoming.reject(pending.client);
+        }
+        catch (Exception ignored)
+        {
+            // The sender may already have disconnected.
+        }
+        complete(id, pending);
+        view.setStatus("Anfrage abgelehnt.", StatusBanner.Type.NEUTRAL);
+    }
+
+    private void complete(UUID id, PendingTransfer pending)
+    {
+        pendingTransfers.remove(id, pending);
+        disconnect(pending.client);
+        view.removeRequest(id);
+        updateInboxStatus();
+    }
+
+    private void updateInboxStatus()
+    {
+        int count = pendingTransfers.size();
+        if (count == 0)
+            view.setStatus("Bereit für neue Anfragen.", StatusBanner.Type.ACTIVE);
+        else
+            view.setStatus(count == 1 ? "1 offene Anfrage." : count + " offene Anfragen.",
+                    StatusBanner.Type.ACTIVE);
     }
 
     public void stop()
     {
-        IncomingTransferService transfer = activeTransfer;
-        if (transfer != null) transfer.cancel();
-        if (task != null) task.cancel(true);
+        closeDiscoveryResponder();
+        if (listenerTask != null) listenerTask.cancel(true);
         closeServer(activeServer);
-        finish("Empfänger gestoppt.", StatusBanner.Type.NEUTRAL);
+
+        pendingTransfers.forEach((id, pending) ->
+        {
+            if (pending.decided.compareAndSet(false, true))
+            {
+                try
+                {
+                    pending.incoming.reject(pending.client);
+                }
+                catch (Exception ignored)
+                {
+                    // Closing the socket below is sufficient.
+                }
+            }
+            else
+            {
+                pending.incoming.cancel();
+            }
+            disconnect(pending.client);
+            view.removeRequest(id);
+        });
+        pendingTransfers.clear();
+        finish("Empfang pausiert.", StatusBanner.Type.NEUTRAL);
     }
 
     private void finish(String message, StatusBanner.Type type)
     {
+        closeDiscoveryResponder();
         view.setListening(false);
         view.setStatus(message, type);
+    }
+
+    private void closeDiscoveryResponder()
+    {
+        DeviceDiscoveryResponder responder = discoveryResponder;
+        discoveryResponder = null;
+        if (responder != null) responder.close();
     }
 
     private void setStatus(String message, StatusBanner.Type type)
@@ -169,10 +271,44 @@ public final class ReceiveController
         }
     }
 
+    private void disconnect(IClient client)
+    {
+        if (client == null || !client.isConnected()) return;
+        try
+        {
+            client.disconnect();
+        }
+        catch (RuntimeException ignored)
+        {
+            // The connection may already be closed.
+        }
+    }
+
     private void startDaemon(Task<?> task, String name)
     {
         Thread thread = new Thread(task, name);
         thread.setDaemon(true);
         thread.start();
+    }
+
+    private static final class PendingTransfer
+    {
+        private final IClient client;
+        private final IncomingTransferService incoming;
+        private final TransferRequest request;
+        private final Path outputDirectory;
+        private final AtomicBoolean decided = new AtomicBoolean();
+
+        private PendingTransfer(
+                IClient client,
+                IncomingTransferService incoming,
+                TransferRequest request,
+                Path outputDirectory)
+        {
+            this.client = client;
+            this.incoming = incoming;
+            this.request = request;
+            this.outputDirectory = outputDirectory;
+        }
     }
 }

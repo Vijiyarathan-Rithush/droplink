@@ -1,5 +1,6 @@
 package presentation.view;
 
+import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -16,7 +17,12 @@ public final class MainView extends BorderPane
         setTop(new AppHeader());
 
         Tab sendTab = new Tab("Senden", sendView);
-        Tab receiveTab = new Tab("Empfangen", receiveView);
+        Tab receiveTab = new Tab("Anfragen", receiveView);
+        receiveTab.textProperty().bind(Bindings.createStringBinding(
+                () -> receiveView.pendingCountProperty().get() == 0
+                        ? "Anfragen"
+                        : "Anfragen (" + receiveView.pendingCountProperty().get() + ")",
+                receiveView.pendingCountProperty()));
         sendTab.setClosable(false);
         receiveTab.setClosable(false);
 

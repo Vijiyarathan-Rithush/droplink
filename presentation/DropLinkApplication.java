@@ -3,7 +3,7 @@ package presentation;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
-import presentation.component.DialogService;
+import infrastructure.DeviceDiscoveryService;
 import presentation.controller.ReceiveController;
 import presentation.controller.SendController;
 import presentation.view.MainView;
@@ -21,26 +21,26 @@ public final class DropLinkApplication extends Application
     public void start(Stage stage)
     {
         SendView sendView = new SendView(stage);
-        ReceiveView receiveView = new ReceiveView(stage);
-        DialogService dialogs = new DialogService(stage);
-        sendController = new SendController(sendView, dialogs);
-        receiveController = new ReceiveController(receiveView, dialogs);
+        ReceiveView receiveView = new ReceiveView(stage, DeviceDiscoveryService.localDeviceName());
+        sendController = new SendController(sendView);
+        receiveController = new ReceiveController(receiveView);
 
-        Scene scene = new Scene(new MainView(sendView, receiveView), 780, 590);
+        Scene scene = new Scene(new MainView(sendView, receiveView), 840, 650);
         scene.getStylesheets().add(Objects.requireNonNull(
                 getClass().getResource("styles.css"), "JavaFX stylesheet is missing").toExternalForm());
 
         stage.setTitle("DropLink – Local File Transfer");
-        stage.setMinWidth(700);
-        stage.setMinHeight(560);
+        stage.setMinWidth(760);
+        stage.setMinHeight(600);
         stage.setScene(scene);
         stage.show();
+        receiveController.start();
     }
 
     @Override
     public void stop()
     {
-        if (sendController != null) sendController.cancel();
+        if (sendController != null) sendController.shutdown();
         if (receiveController != null) receiveController.stop();
     }
 }
