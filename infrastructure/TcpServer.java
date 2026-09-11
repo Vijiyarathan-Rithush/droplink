@@ -11,7 +11,6 @@ import java.net.Socket;
 
 public final class TcpServer implements IServer
 {
-    private static final int DEFAULT_TIMEOUT = 5_000;
     private volatile ServerSocket serverSocket;
     private TcpClient tcpClient;
     private PrintWriter output;
@@ -27,7 +26,9 @@ public final class TcpServer implements IServer
         {
             serverSocket = new ServerSocket(port);
             Socket clientSocket = serverSocket.accept();
-            clientSocket.setSoTimeout(DEFAULT_TIMEOUT);
+            // The peer may wait for a human decision before sending more data.
+            // Cancellation closes the socket and interrupts pending reads.
+            clientSocket.setSoTimeout(0);
             tcpClient = new TcpClient(clientSocket);
         }
         catch (IOException | SecurityException  | IllegalArgumentException e)

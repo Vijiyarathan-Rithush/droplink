@@ -10,7 +10,7 @@ import java.net.Socket;
 
 public final class TcpClient implements IClient
 {
-    private static final int DEFAULT_TIMEOUT = 5_000;
+    private static final int CONNECT_TIMEOUT = 5_000;
     private volatile Socket socket;
 
     public TcpClient(Socket socket)
@@ -27,7 +27,7 @@ public final class TcpClient implements IClient
 
         try (Socket testSocket = new Socket())
         {
-            testSocket.connect(socketAddress, DEFAULT_TIMEOUT);
+            testSocket.connect(socketAddress, CONNECT_TIMEOUT);
             return true;
         }
         catch (IOException e)
@@ -47,8 +47,10 @@ public final class TcpClient implements IClient
         
         try
         {
-            clientSocket.connect(socketAddress, DEFAULT_TIMEOUT);
-            clientSocket.setSoTimeout(DEFAULT_TIMEOUT);
+            clientSocket.connect(socketAddress, CONNECT_TIMEOUT);
+            // Transfers can pause while the receiver decides whether to accept the file.
+            // Cancellation closes the socket, so no read timeout is needed here.
+            clientSocket.setSoTimeout(0);
             this.socket = clientSocket;
         }
         catch (IOException e)

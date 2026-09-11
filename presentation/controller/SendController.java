@@ -9,7 +9,7 @@ import presentation.component.DialogService;
 import presentation.component.StatusBanner;
 import presentation.view.SendView;
 import service.FileTransferService;
-import service.TransferCancelledException;
+import service.exceptions.TransferCancelledException;
 import service.TransferDecisionService;
 import service.interfaces.IClient;
 
@@ -77,7 +77,7 @@ public final class SendController
                 Throwable error = task.getException();
                 finish(error instanceof TransferCancelledException
                                 ? "Transfer abgebrochen."
-                                : "Senden fehlgeschlagen: " + messageOf(error),
+                                : "Senden nicht möglich. Bitte Verbindung und Empfänger prüfen.",
                         error instanceof TransferCancelledException
                                 ? StatusBanner.Type.NEUTRAL
                                 : StatusBanner.Type.ERROR);
@@ -87,7 +87,7 @@ public final class SendController
         catch (Exception e)
         {
             view.setBusy(false);
-            dialogs.showError("Senden nicht möglich", messageOf(e));
+            view.setStatus("Senden konnte nicht gestartet werden.", StatusBanner.Type.ERROR);
         }
     }
 
@@ -103,12 +103,6 @@ public final class SendController
         activeTransfer = null;
         view.setBusy(false);
         view.setStatus(message, type);
-    }
-
-    private String messageOf(Throwable error)
-    {
-        if (error == null) return "Unbekannter Fehler";
-        return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
     }
 
     private void startDaemon(Task<?> task, String name)

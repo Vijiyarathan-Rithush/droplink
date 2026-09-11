@@ -54,13 +54,14 @@ public final class ReceiveController
             task.setOnCancelled(event -> finish("Empfänger gestoppt.", StatusBanner.Type.NEUTRAL));
             task.setOnSucceeded(event -> finish("Empfänger gestoppt.", StatusBanner.Type.NEUTRAL));
             task.setOnFailed(event -> finish(
-                    "Empfängerfehler: " + messageOf(task.getException()), StatusBanner.Type.ERROR));
+                    "Empfänger wurde gestoppt. Bitte Port und Netzwerkfreigabe prüfen.",
+                    StatusBanner.Type.ERROR));
             startDaemon(task, "droplink-receive");
         }
         catch (Exception e)
         {
             view.setListening(false);
-            dialogs.showError("Empfänger konnte nicht gestartet werden", messageOf(e));
+            view.setStatus("Empfänger konnte nicht gestartet werden.", StatusBanner.Type.ERROR);
         }
     }
 
@@ -86,7 +87,7 @@ public final class ReceiveController
                     catch (IOException e)
                     {
                         if (!isCancelled())
-                            setStatus("Transfer fehlgeschlagen: " + messageOf(e) + " – warte weiter …",
+                            setStatus("Transfer unterbrochen – warte auf die nächste Verbindung …",
                                     StatusBanner.Type.ERROR);
                     }
                     catch (RuntimeException e)
@@ -166,12 +167,6 @@ public final class ReceiveController
         {
             // Closing the listening socket intentionally interrupts accept().
         }
-    }
-
-    private String messageOf(Throwable error)
-    {
-        if (error == null) return "Unbekannter Fehler";
-        return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
     }
 
     private void startDaemon(Task<?> task, String name)

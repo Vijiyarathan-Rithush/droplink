@@ -2,6 +2,7 @@ package service;
 
 import domain.NetworkEndpoint;
 import domain.TransferDecision;
+import service.exceptions.TransferCancelledException;
 import service.interfaces.IClient;
 import service.interfaces.IFileTransferService;
 import service.interfaces.ITransferDecisionService;
