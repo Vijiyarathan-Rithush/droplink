@@ -179,7 +179,7 @@ public final class SendView extends VBox
         selectFile(selected.toPath());
     }
 
-    private void selectFile(Path selectedPath)
+    public void selectFile(Path selectedPath)
     {
         file.setValue(selectedPath.toString());
         try

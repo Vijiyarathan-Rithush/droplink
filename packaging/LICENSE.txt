@@ -1,0 +1,11 @@
+DropLink End User License
+
+Copyright (c) 2026 Vijiyarathan Rithush. All rights reserved.
+
+Permission is granted to install and use this software for personal evaluation
+and file transfers. Redistribution, modification, resale, and reverse engineering
+are not permitted without prior written permission from the copyright holder.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. THE COPYRIGHT
+HOLDER IS NOT LIABLE FOR CLAIMS, DAMAGES, DATA LOSS, OR OTHER LIABILITY ARISING
+FROM THE USE OF THE SOFTWARE.

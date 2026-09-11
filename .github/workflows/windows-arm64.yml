@@ -1,0 +1,131 @@
+name: Windows ARM64 Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-windows-arm64:
+    if: vars.ENABLE_WINDOWS_ARM64 == 'true'
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Java 25 ARM64 einrichten
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          architecture: aarch64
+          cache: maven
+
+      - name: Version bestimmen
+        shell: pwsh
+        run: |
+          $displayVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($displayVersion -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
+            throw "ARM64-Releases brauchen einen Versions-Tag wie v1.2.3."
+          }
+          "APP_VERSION=$($displayVersion -replace '-beta\.\d+$', '')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DISPLAY_VERSION=$displayVersion" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Testen und kompilieren
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          mvn --batch-mode --no-transfer-progress clean verify dependency:copy-dependencies `
+            "-DincludeScope=runtime" `
+            "-DoutputDirectory=target/package-input"
+          $finalName = mvn --batch-mode --no-transfer-progress help:evaluate `
+            "-Dexpression=project.build.finalName" "-DforceStdout" --quiet
+          Copy-Item -LiteralPath "target/$finalName.jar" `
+            -Destination "target/package-input/droplink.jar"
+
+      - name: ARM64-Pakete bauen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force -Path "dist/portable", "dist/installer" | Out-Null
+
+          $base = @(
+            "--name", "DropLink",
+            "--app-version", $env:APP_VERSION,
+            "--vendor", "Vijiyarathan Rithush",
+            "--description", "Direkter Dateitransfer im lokalen Netzwerk",
+            "--copyright", "Copyright 2026 Vijiyarathan Rithush",
+            "--icon", "packaging/droplink.ico",
+            "--input", "target/package-input",
+            "--main-jar", "droplink.jar",
+            "--main-class", "presentation.Launcher",
+            "--java-options", "--enable-native-access=ALL-UNNAMED",
+            "--java-options", "-Ddroplink.version=$env:DISPLAY_VERSION"
+          )
+          jpackage @base --type app-image --dest "dist/portable"
+
+          $installer = @(
+            "--license-file", "packaging/LICENSE.txt",
+            "--win-per-user-install",
+            "--win-dir-chooser",
+            "--win-menu",
+            "--win-menu-group", "DropLink",
+            "--win-shortcut",
+            "--win-upgrade-uuid", "d07a59a9-80e0-466c-a3fc-40c46460b0e8"
+          )
+          jpackage @base @installer --type exe --dest "dist/installer"
+          jpackage @base @installer --type msi --dest "dist/installer"
+
+          Copy-Item (Get-ChildItem "dist/installer/*.exe" | Select-Object -First 1).FullName `
+            "dist/DropLink-Setup-Windows-ARM64.exe"
+          Copy-Item (Get-ChildItem "dist/installer/*.msi" | Select-Object -First 1).FullName `
+            "dist/DropLink-Setup-Windows-ARM64.msi"
+          Compress-Archive "dist/portable/DropLink" "dist/DropLink-Windows-ARM64.zip"
+
+          $files = Get-ChildItem "dist/DropLink-*"
+          $lines = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 $file.FullName
+            "$($hash.Hash) *$($file.Name)"
+          }
+          $lines | Set-Content "dist/SHA256SUMS-ARM64.txt" -Encoding ascii
+
+      - name: ARM64-Build bereitstellen
+        uses: actions/upload-artifact@v6
+        with:
+          name: DropLink-Windows-ARM64
+          path: |
+            dist/DropLink-Windows-ARM64.zip
+            dist/DropLink-Setup-Windows-ARM64.exe
+            dist/DropLink-Setup-Windows-ARM64.msi
+            dist/SHA256SUMS-ARM64.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: ARM64-Dateien an das Release anhaengen
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          for ($attempt = 1; $attempt -le 40; $attempt++) {
+            gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" 2>$null
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 40) { throw "Das x64-Release wurde nicht rechtzeitig erstellt." }
+            Start-Sleep -Seconds 15
+          }
+          gh release upload "${{ github.ref_name }}" `
+            "dist/DropLink-Windows-ARM64.zip" `
+            "dist/DropLink-Setup-Windows-ARM64.exe" `
+            "dist/DropLink-Setup-Windows-ARM64.msi" `
+            "dist/SHA256SUMS-ARM64.txt" `
+            --repo "${{ github.repository }}" `
+            --clobber

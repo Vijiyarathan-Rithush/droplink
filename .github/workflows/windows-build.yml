@@ -9,6 +9,8 @@ on:
   pull_request:
     branches:
       - main
+  schedule:
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -17,11 +19,11 @@ concurrency:
 
 jobs:
   build-windows:
-    name: Build EXE
+    name: Build EXE und MSI
     runs-on: windows-2025
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Repository auschecken
@@ -38,22 +40,32 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_REF_TYPE -eq "tag") {
-            $version = $env:GITHUB_REF_NAME -replace '^v', ''
-            if ($version -notmatch '^\d+\.\d+\.\d+$') {
-              throw "Release-Tags muessen dem Format v1.2.3 entsprechen."
+            $displayVersion = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ($displayVersion -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
+              throw "Release-Tags muessen v1.2.3 oder v1.2.3-beta.1 entsprechen."
             }
+            $version = $displayVersion -replace '-beta\.\d+$', ''
+            $channel = if ($displayVersion -match '-beta\.') { "beta" } else { "stable" }
+          } elseif ($env:GITHUB_EVENT_NAME -eq "schedule") {
+            $version = "0.0.$env:GITHUB_RUN_NUMBER"
+            $displayVersion = "nightly.$env:GITHUB_RUN_NUMBER"
+            $channel = "nightly"
           } else {
             $version = "1.2.$env:GITHUB_RUN_NUMBER"
+            $displayVersion = $version
+            $channel = "development"
           }
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DISPLAY_VERSION=$displayVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_CHANNEL=$channel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Anwendung kompilieren
+      - name: Tests ausfuehren und Anwendung kompilieren
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
 
-          mvn --batch-mode --no-transfer-progress clean package dependency:copy-dependencies `
+          mvn --batch-mode --no-transfer-progress clean verify dependency:copy-dependencies `
             "-DincludeScope=runtime" `
             "-DoutputDirectory=target/package-input"
 
@@ -64,7 +76,7 @@ jobs:
           Copy-Item -LiteralPath "target/$finalName.jar" `
             -Destination "target/package-input/droplink.jar"
 
-      - name: Portable App und Installer bauen
+      - name: Portable App, EXE und MSI bauen
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -78,75 +90,210 @@ jobs:
             --app-version $env:APP_VERSION `
             --vendor DropLink `
             --description "Direkter Dateitransfer im lokalen Netzwerk" `
+            --copyright "Copyright 2026 Vijiyarathan Rithush" `
+            --icon "packaging/droplink.ico" `
             --input "target/package-input" `
             --dest "dist/portable" `
             --main-jar "droplink.jar" `
             --main-class "presentation.Launcher" `
-            --java-options "--enable-native-access=ALL-UNNAMED"
+            --java-options "--enable-native-access=ALL-UNNAMED" `
+            --java-options "-Ddroplink.version=$env:DISPLAY_VERSION" `
+            --java-options "-Ddroplink.updateChannel=$env:RELEASE_CHANNEL"
 
           jpackage `
             --type exe `
             --name DropLink `
             --app-version $env:APP_VERSION `
-            --vendor DropLink `
+            --vendor "Vijiyarathan Rithush" `
             --description "Direkter Dateitransfer im lokalen Netzwerk" `
+            --copyright "Copyright 2026 Vijiyarathan Rithush" `
+            --icon "packaging/droplink.ico" `
+            --license-file "packaging/LICENSE.txt" `
             --input "target/package-input" `
             --dest "dist/installer" `
             --main-jar "droplink.jar" `
             --main-class "presentation.Launcher" `
             --java-options "--enable-native-access=ALL-UNNAMED" `
+            --java-options "-Ddroplink.version=$env:DISPLAY_VERSION" `
+            --java-options "-Ddroplink.updateChannel=$env:RELEASE_CHANNEL" `
             --win-per-user-install `
             --win-dir-chooser `
             --win-menu `
+            --win-menu-group "DropLink" `
+            --win-upgrade-uuid "44b99a8c-0a3b-4de7-a2b9-175f36dcc2d8" `
             --win-shortcut
 
+          jpackage `
+            --type msi `
+            --name DropLink `
+            --app-version $env:APP_VERSION `
+            --vendor "Vijiyarathan Rithush" `
+            --description "Direkter Dateitransfer im lokalen Netzwerk" `
+            --copyright "Copyright 2026 Vijiyarathan Rithush" `
+            --icon "packaging/droplink.ico" `
+            --license-file "packaging/LICENSE.txt" `
+            --input "target/package-input" `
+            --dest "dist/installer" `
+            --main-jar "droplink.jar" `
+            --main-class "presentation.Launcher" `
+            --java-options "--enable-native-access=ALL-UNNAMED" `
+            --java-options "-Ddroplink.version=$env:DISPLAY_VERSION" `
+            --java-options "-Ddroplink.updateChannel=$env:RELEASE_CHANNEL" `
+            --win-per-user-install `
+            --win-dir-chooser `
+            --win-menu `
+            --win-menu-group "DropLink" `
+            --win-upgrade-uuid "44b99a8c-0a3b-4de7-a2b9-175f36dcc2d8" `
+            --win-shortcut
+
+          $installer = Get-ChildItem -LiteralPath "dist/installer" -Filter "*.exe" |
+            Select-Object -First 1
+          $msi = Get-ChildItem -LiteralPath "dist/installer" -Filter "*.msi" |
+            Select-Object -First 1
+          if ($null -eq $installer -or $null -eq $msi) {
+            throw "jpackage hat nicht beide Windows-Installer erzeugt."
+          }
+          Copy-Item -LiteralPath $installer.FullName `
+            -Destination "dist/DropLink-Setup-Windows-x64.exe"
+          Copy-Item -LiteralPath $msi.FullName `
+            -Destination "dist/DropLink-Setup-Windows-x64.msi"
+
+      - name: Windows-Dateien digital signieren
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            Write-Output "Kein Code-Signing-Zertifikat hinterlegt; Signierung wird uebersprungen."
+            exit 0
+          }
+          $certificate = Join-Path $env:RUNNER_TEMP "droplink-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $certificate,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+
+          $signTool = Get-ChildItem `
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if ($null -eq $signTool) { throw "SignTool wurde nicht gefunden." }
+
+          $signTargets = @(
+            "dist/portable/DropLink/DropLink.exe",
+            "dist/DropLink-Setup-Windows-x64.exe",
+            "dist/DropLink-Setup-Windows-x64.msi"
+          )
+          try {
+            foreach ($target in $signTargets) {
+              & $signTool.FullName sign /fd SHA256 /td SHA256 `
+                /tr "http://timestamp.digicert.com" `
+                /f $certificate /p $env:WINDOWS_CERTIFICATE_PASSWORD $target
+              & $signTool.FullName verify /pa $target
+            }
+          } finally {
+            Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Signaturstatus dokumentieren
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+        run: |
+          $status = if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            "UNSIGNED - Kein Code-Signing-Zertifikat in den GitHub-Secrets hinterlegt."
+          } else {
+            "SIGNED - Authenticode-Signatur wurde erzeugt und verifiziert."
+          }
+          Set-Content -LiteralPath "dist/SIGNING.txt" -Value $status -Encoding utf8
+
+      - name: Portable ZIP erstellen und Virenscan ausfuehren
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           Compress-Archive -LiteralPath "dist/portable/DropLink" `
             -DestinationPath "dist/DropLink-Windows-x64.zip" `
             -CompressionLevel Optimal
 
-          $installer = Get-ChildItem -LiteralPath "dist/installer" -Filter "*.exe" |
+          $defender = Get-ChildItem `
+            "$env:ProgramData\Microsoft\Windows Defender\Platform\*\MpCmdRun.exe" `
+            -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
             Select-Object -First 1
-          if ($null -eq $installer) {
-            throw "jpackage hat keinen EXE-Installer erzeugt."
+          if ($null -eq $defender) {
+            $fallback = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+            if (Test-Path -LiteralPath $fallback) { $defender = Get-Item $fallback }
           }
-          Copy-Item -LiteralPath $installer.FullName `
-            -Destination "dist/DropLink-Setup-Windows-x64.exe"
+          if ($null -eq $defender) { throw "Microsoft Defender wurde nicht gefunden." }
+          & $defender.FullName -Scan -ScanType 3 -File (Resolve-Path "dist") -DisableRemediation
+          if ($LASTEXITCODE -ne 0) { throw "Der Virenscan ist fehlgeschlagen oder hat einen Fund gemeldet." }
 
+      - name: Pruefsummen erzeugen und verifizieren
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           $files = @(
             "dist/DropLink-Windows-x64.zip",
-            "dist/DropLink-Setup-Windows-x64.exe"
+            "dist/DropLink-Setup-Windows-x64.exe",
+            "dist/DropLink-Setup-Windows-x64.msi"
           )
           $checksums = foreach ($file in $files) {
             $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $file
             "$($hash.Hash) *$([IO.Path]::GetFileName($file))"
           }
           $checksums | Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Encoding ascii
+          foreach ($file in $files) {
+            $expected = ($checksums | Where-Object { $_ -like "*$([IO.Path]::GetFileName($file))" }).Split(' ')[0]
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash
+            if ($actual -ne $expected) { throw "Pruefsummenfehler: $file" }
+          }
 
       - name: Build herunterladen bereitstellen
         uses: actions/upload-artifact@v6
         with:
-          name: DropLink-Windows-x64
+          name: DropLink-Windows-x64-${{ env.RELEASE_CHANNEL }}
           path: |
             dist/DropLink-Windows-x64.zip
             dist/DropLink-Setup-Windows-x64.exe
+            dist/DropLink-Setup-Windows-x64.msi
             dist/SHA256SUMS.txt
+            dist/SIGNING.txt
           if-no-files-found: error
           retention-days: 30
           overwrite: true
 
-      - name: GitHub Release mit fertigen Dateien veroeffentlichen
-        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-        shell: pwsh
+  publish-release:
+    name: Release veroeffentlichen
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Gepruefte Build-Dateien laden
+        uses: actions/download-artifact@v8
+        with:
+          pattern: DropLink-Windows-x64-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release mitsamt Downloads veroeffentlichen
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $true
-
-          gh release create "${{ github.ref_name }}" `
-            "dist/DropLink-Setup-Windows-x64.exe" `
-            "dist/DropLink-Windows-x64.zip" `
-            "dist/SHA256SUMS.txt" `
-            --repo "${{ github.repository }}" `
-            --title "DropLink ${{ github.ref_name }}" `
+          args=(
+            "${GITHUB_REF_NAME}"
+            "dist/DropLink-Setup-Windows-x64.exe"
+            "dist/DropLink-Setup-Windows-x64.msi"
+            "dist/DropLink-Windows-x64.zip"
+            "dist/SHA256SUMS.txt"
+            "dist/SIGNING.txt"
+            --repo "${GITHUB_REPOSITORY}"
+            --title "DropLink ${GITHUB_REF_NAME}"
             --generate-notes
+          )
+          if [[ "${GITHUB_REF_NAME}" == *-beta.* ]]; then args+=(--prerelease); fi
+          gh release create "${args[@]}"
