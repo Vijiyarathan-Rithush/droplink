@@ -2,7 +2,7 @@ package domain;
 
 import java.util.Objects;
 
-public record DiscoveredDevice(String name, NetworkEndpoint endpoint)
+public record gDiscoveredDevice(String name, NetworkEndpoint endpoint)
 {
     public DiscoveredDevice
     {
